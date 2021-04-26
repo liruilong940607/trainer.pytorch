@@ -1,3 +1,3 @@
-#AI Choreographer
+# AI Choreographer
 
 WIP
