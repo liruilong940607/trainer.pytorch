@@ -106,3 +106,4 @@ venv.bak/
 data/
 
 .DS_Store
+audio_cache/

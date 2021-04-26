@@ -7,22 +7,22 @@ _C = CN()
 _C.name = 'default'
 _C.checkpoints_path = '../data/checkpoints/'
 _C.results_path = '../data/results/'
-_C.learning_rate = 1e-3
+_C.learning_rate = 1e-4
 _C.weight_decay = 0.0
 _C.momentum = 0.0
-_C.optim = 'RMSprop'
-_C.schedule = [40, 60]
+_C.optim = 'Adam'
+_C.schedule = [10, 17]
 _C.gamma = 0.1
-_C.resume = False 
+_C.resume = False
 
 # needed by train()
 _C.ckpt_path = ''
-_C.batch_size = 4
+_C.batch_size = 16
 _C.num_threads = 4
-_C.num_epoch = 1
+_C.num_epoch = 50
 _C.freq_plot = 10
-_C.freq_save = 100
-_C.freq_eval = 100
+_C.freq_save = 1000
+_C.freq_eval = 1000
 
 _C.net = CN()
 _C.net.backbone = ''

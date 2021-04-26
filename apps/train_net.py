@@ -1,4 +1,4 @@
-# Usage: 
+# Usage:
 # python train_net.py -cfg ../configs/example.yaml -- learning_rate 1.0
 
 import sys
@@ -13,6 +13,8 @@ import torchvision
 sys.path.insert(0, '../')
 from lib.common.trainer import Trainer
 from lib.common.config import get_cfg_defaults
+from lib.datasets import AIChoreoDataset
+from lib.models import FACT
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -29,25 +31,6 @@ cfg.merge_from_file(args.config_file)
 # opts = ['dataset.root', '../data/XXXX', 'learning_rate', '1e-2']
 cfg.merge_from_list(opts)
 cfg.freeze()
-
-
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x)
 
 
 def test(net):
@@ -82,10 +65,8 @@ def test(net):
 
 
 def train(device='cuda'):
-    # -- TODO: change this line below --
-    # setup net 
-    net = Net().to(device)
-    # ----
+    # setup net
+    net = FACT().to(device)
 
     # setup trainer
     trainer = Trainer(net, cfg, use_tb=True)
@@ -95,16 +76,9 @@ def train(device='cuda'):
     else:
         trainer.logger.info(f'ckpt {cfg.ckpt_path} not found.')
 
-    # -- TODO: change this line below --
     # set dataset
-    train_dataset = torchvision.datasets.MNIST(
-        '../data/', train=True, download=True,
-        transform=torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(
-                (0.1307,), (0.3081,))
-        ]))
-    # ----
+    train_dataset = AIChoreoDataset(
+        "/mnt/data/AIST++/", "/mnt/data/AIST/music", split="train")
 
     train_data_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -113,7 +87,7 @@ def train(device='cuda'):
     trainer.logger.info(
         f'train data size: {len(train_dataset)}; '+
         f'loader size: {len(train_data_loader)};')
-    
+
     start_iter = trainer.iteration
     start_epoch = trainer.epoch
     # start training
@@ -125,30 +99,27 @@ def train(device='cuda'):
             batch_size=cfg.batch_size, shuffle=True,
             num_workers=cfg.num_threads, pin_memory=True, drop_last=True)
         loader = iter(train_data_loader)
-        niter = len(train_data_loader)        
-        
+        niter = len(train_data_loader)
+
         epoch_start_time = iter_start_time = time.time()
         for iteration in range(start_iter, niter):
-            # -- TODO: change this line below --
-            data, target = next(loader)         
-            # ----
-               
+            motion, audio, target, seq_name = next(loader)
+
             iter_data_time = time.time() - iter_start_time
             global_step = epoch * niter + iteration
-            
-            # -- TODO: change this line below --
-            data = data.to(device)
+
+            motion = motion.to(device)
+            audio = audio.to(device)
             target = target.to(device)
-            output = trainer.net(data)
-            loss = F.nll_loss(output, target)
-            # ----
+            output = trainer.net(motion, audio)
+            loss = F.mse_loss(output, target)
 
             trainer.optimizer.zero_grad()
             loss.backward()
             trainer.optimizer.step()
 
             iter_time = time.time() - iter_start_time
-            eta = (niter-start_iter) * (time.time()-epoch_start_time) / (iteration-start_iter+1) 
+            eta = (niter-start_iter) * (time.time()-epoch_start_time) / (iteration-start_iter+1)
 
             # print
             if iteration % cfg.freq_plot == 0 and iteration > 0:
@@ -170,13 +141,13 @@ def train(device='cuda'):
             if iteration % cfg.freq_eval == 0 and iteration > 0:
                 trainer.net.eval()
                 # -- TODO: change this line below --
-                test(trainer.net.module)
+                # test(trainer.net.module)
                 # ----
                 trainer.net.train()
 
             # end
             iter_start_time = time.time()
-        
+
         trainer.scheduler.step()
         start_iter = 0
 
