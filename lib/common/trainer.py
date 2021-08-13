@@ -5,7 +5,7 @@ from easydict import EasyDict as edict
 import torch
 import torch.nn as nn
 
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard.writer import SummaryWriter
 from .logger import colorlogger
 
 
@@ -27,7 +27,7 @@ class Trainer():
         
         # set tensorboard
         if use_tb:
-            self.tb_writer = SummaryWriter(logdir=self.results_path)
+            self.tb_writer = SummaryWriter(log_dir=self.results_path)
 
         # set optimizer
         learning_rate = opt.learning_rate

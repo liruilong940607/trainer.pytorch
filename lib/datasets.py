@@ -125,7 +125,12 @@ class AIChoreoDataset:
 
 
 if __name__ == "__main__":
-    dataset = AIChoreoDataset("/mnt/data/AIST++/", "/mnt/data/AIST/music", split="testval")
+    dataset = AIChoreoDataset(
+        "/mnt/data/aist_plusplus_final/", 
+        "/mnt/data/AIST/music", 
+        "../apps/audio_cache/",
+        split="testval"
+    )
     print (len(dataset))
     motion, audio, target, seq_name = dataset[0]
     print (motion.shape, audio.shape, target.shape, seq_name)

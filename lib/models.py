@@ -3,76 +3,204 @@ import torch
 import torch.nn as nn
 
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, hidden_size=800, dropout=0.1, max_len=500):
-        super().__init__()
-        self.pe = nn.Embedding(max_len, hidden_size)
-        self.dropout = nn.Dropout(p=dropout)
-        self.norm = nn.LayerNorm(hidden_size)
+class Norm(nn.Module):
+  """Layer normalization."""
 
-    def forward(self, x):
-        indexs = torch.arange(0, x.size(1), dtype=torch.long, device=x.device)
-        x = x + self.pe(indexs).unsqueeze(dim=0)
-        return self.dropout(self.norm(x))
+  def __init__(self, fn, dim):
+    super().__init__()
+    self.norm = nn.LayerNorm(dim)
+    self.fn = fn
+
+  def forward(self, x):
+    return self.fn(self.norm(x))
 
 
-class FACT(nn.Module):
-    def __init__(self,
-                 m_feat_dim=219, a_feat_dim=35, out_seq_len=20,
-                 hidden_size=800, n_head=10, dim_feedforward=8192):
-        super().__init__()
-        self.out_seq_len = out_seq_len
+class Residual(nn.Module):
+  """Residual layer."""
 
-        self.audio_transformer = nn.Sequential(
-            nn.Linear(a_feat_dim, hidden_size),
-            PositionalEncoding(hidden_size),
-            nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(hidden_size, n_head, dim_feedforward),
-                num_layers=2)
-        )
-        self.motion_transformer = nn.Sequential(
-            nn.Linear(m_feat_dim, hidden_size),
-            PositionalEncoding(hidden_size),
-            nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(hidden_size, n_head, dim_feedforward),
-                num_layers=2)
-        )
-        self.cross_modal_transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(hidden_size, n_head, dim_feedforward),
-            num_layers=12)
-        self.last_layer = nn.Linear(hidden_size, m_feat_dim)
+  def __init__(self, fn):
+    super().__init__()
+    self.fn = fn
 
-        self._reset_parameters()
+  def forward(self, x):
+    return self.fn(x) + x
 
-    def _reset_parameters(self):
-        r"""Initiate parameters in the transformer model."""
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
 
-    def forward(self, motion, audio):
-        """
-        Args:
-            motion: motion features. [batch_size, m_seq_len, m_feat_dim]
-            audio: audio features. [batch_size, a_seq_len, a_feat_dim]
-        Returns:
-            predicted future motion features. [batch_size, out_seq_len, m_feat_dim]
-        """
-        # audio_embed: [batch_size, a_seq_len, embed_dim]
-        audio_embed = self.audio_transformer(audio)
-        # motion_embed: [batch_size, m_seq_len, embed_dim]
-        motion_embed = self.motion_transformer(motion)
-        # embed: [batch_size, m_seq_len + a_seq_len, embed_dim]
-        embed = torch.cat([motion_embed, audio_embed], dim=1)
-        # out: [batch_size, m_seq_len + a_seq_len, embed_dim]
-        out = self.cross_modal_transformer(embed)
-        # out: [batch_size, m_seq_len + a_seq_len, m_feat_dim]
-        out = self.last_layer(out)
-        return out[:, :self.out_seq_len, :]
+class MLP(nn.Module):
+  """Feedforward layer."""
+
+  def __init__(self, in_dim, out_dim, hidden_dim):
+    super().__init__()
+    self.net = nn.Sequential(
+        nn.Linear(in_dim, hidden_dim),
+        nn.GELU(),
+        nn.Linear(hidden_dim, out_dim)
+    )
+
+  def forward(self, x):
+    return self.net(x)
+
+
+class Attention(nn.Module):
+  """Attention layer."""
+
+  def __init__(self, in_dim, out_dim, heads=10):
+    super().__init__()
+    self.heads = heads
+    self.scale = out_dim**-0.5
+
+    self.to_qkv = nn.Linear(in_dim, out_dim * 3, bias=False)
+    self.to_out = nn.Linear(out_dim, out_dim)
+
+  def forward(self, x):
+    batch_size, seq_len, feature_dim = x.shape
+    assert feature_dim % self.heads == 0
+    # [batch_size, seq_len, 3, heads, dim]
+    qkv = self.to_qkv(x).view(
+        batch_size, seq_len, 3, self.heads, feature_dim // self.heads
+    )
+    # [3, batch_size, heads, seq_len, dim]
+    qkv = qkv.permute(2, 0, 3, 1, 4)
+    # [batch_size, heads, seq_len, dim]
+    q, k, v = qkv[0, ...], qkv[1, ...], qkv[2, ...]
+
+    dots = torch.einsum("bhid,bhjd->bhij", q, k) * self.scale
+    attn = torch.softmax(dots, axis=-1)
+
+    out = torch.einsum("bhij,bhjd->bhid", attn, v)
+    out = out.permute(0, 2, 1, 3).reshape(batch_size, seq_len, feature_dim)
+    out = self.to_out(out)
+    return out
+
+
+class Transformer(nn.Module):
+  """Transformer Encoder."""
+
+  def __init__(self,
+               hidden_size=800,
+               num_hidden_layers=12,
+               num_attention_heads=10,
+               intermediate_size=3072):
+    super().__init__()
+    blocks = []
+    for _ in range(num_hidden_layers):
+      blocks.extend([
+          Residual(Norm(
+            Attention(hidden_size, hidden_size, heads=num_attention_heads), 
+            dim=hidden_size
+          )),
+          Residual(Norm(
+            MLP(hidden_size, hidden_size, intermediate_size), 
+            dim=hidden_size
+          ))
+      ])
+    self.net = nn.Sequential(*blocks)
+
+  def forward(self, x):
+    return self.net(x)
+
+class LinearEmbedding(nn.Module):
+  """Linear projection."""
+
+  def __init__(self, in_dim, out_dim):
+    super().__init__()
+    self.net = nn.Linear(in_dim, out_dim)
+
+  def forward(self, x):
+    return self.net(x)
+
+class PositionEmbedding(nn.Module):
+  """Position Embedding layer."""
+
+  def __init__(self, seq_length, dim):
+    super().__init__()
+
+    self.pos_embedding = nn.Parameter(
+      torch.randn(1, seq_length, dim) * 0.02, requires_grad=True
+    )
+
+  def forward(self, x):
+    """Call embedding layer."""
+    return x + self.pos_embedding
+
+
+class CrossModalLayer(nn.Module):
+  """Cross-modal layer."""
+
+  def __init__(self, hidden_size=800, out_dim=219):
+    super().__init__()
+    self.transformer_layer = Transformer(
+        hidden_size=hidden_size,
+        num_hidden_layers=10,
+        num_attention_heads=10,
+        intermediate_size=3072)
+    self.cross_output_layer = nn.Linear(hidden_size, out_dim)
+    nn.init.xavier_normal_(self.cross_output_layer.weight)
+
+  def forward(self, modal_a_sequences, modal_b_sequences):
+    """Get output for the cross-modal tasks."""
+    _, _, modal_a_width = modal_a_sequences.shape
+    _, _, modal_b_width = modal_b_sequences.shape
+    if modal_a_width != modal_b_width:
+      raise ValueError(
+          "The modal_a hidden size (%d) should be the same with the modal_b "
+          "hidden size (%d)" % (modal_a_width, modal_b_width))
+    # [batch_size, modal_a_seq_len + modal_b_seq_len, width]
+    merged_sequences = torch.cat([modal_a_sequences, modal_b_sequences], axis=1)
+    # [batch_size, modal_a_seq_len + modal_b_seq_len, width]
+    merged_sequences = self.transformer_layer(merged_sequences)
+    logits = self.cross_output_layer(merged_sequences)
+    return logits
+
+class FACTModel(nn.Module):
+  """Audio Motion Multi-Modal model."""
+
+  def __init__(self):
+    """Initializer for FACTModel."""
+    super().__init__()
+    self.motion_transformer = Transformer(num_attention_heads=2)
+    self.motion_linear_embedding = LinearEmbedding(in_dim=219, out_dim=800)
+    self.motion_pos_embedding = PositionEmbedding(seq_length=120, dim=800)
+    self.audio_transformer = Transformer(num_attention_heads=2)
+    self.audio_linear_embedding = LinearEmbedding(in_dim=35, out_dim=800)
+    self.audio_pos_embedding = PositionEmbedding(seq_length=240, dim=800)
+    self.cross_modal_layer = CrossModalLayer(hidden_size=800, out_dim=219)
+
+
+  def forward(self, motion_input, audio_input):
+    """Predict sequences from inputs.
+
+    Args:
+      inputs: Input dict of tensors, the output from the provide_inputs().
+
+    Returns:
+      motion_sequence_output: Tensor of shape
+        [batch_size, seq_length, motion_feature_dimension]
+      motion_last_output: Tensor of shape [batch_size, motion_feature_dimension]
+    """
+    # Computes motion features.
+    motion_features = self.motion_linear_embedding(motion_input)
+    # `motion_features` shape = [batch_size, seq_length, hidden_size].
+    motion_features = self.motion_pos_embedding(motion_features)
+    motion_features = self.motion_transformer(motion_features)
+
+    # Computes audio features.
+    audio_features = self.audio_linear_embedding(audio_input)
+    audio_features = self.audio_pos_embedding(audio_features)
+    audio_features = self.audio_transformer(audio_features)
+
+    # Computes cross modal output.
+    output = self.cross_modal_layer(motion_features, audio_features)
+
+    return output
+
+  def loss(self, target, pred):
+    target_seq_len = target.shape[1]
+    return torch.nn.functional.mse_loss(target, pred[:, :target_seq_len])
 
 
 if __name__ == "__main__":
-    model = FACT()
+    model = FACTModel()
     motion = torch.randn(16, 120, 219)
     audio = torch.randn(16, 240, 35)
 

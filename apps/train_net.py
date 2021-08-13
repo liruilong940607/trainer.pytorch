@@ -14,7 +14,7 @@ sys.path.insert(0, '../')
 from lib.common.trainer import Trainer
 from lib.common.config import get_cfg_defaults
 from lib.datasets import AIChoreoDataset
-from lib.models import FACT
+from lib.models import FACTModel
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -33,40 +33,40 @@ cfg.merge_from_list(opts)
 cfg.freeze()
 
 
-def test(net):
-    net.eval()
-    # set dataset
-    test_dataset = torchvision.datasets.MNIST(
-        '../data/', train=False, download=True,
-        transform=torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(
-                (0.1307,), (0.3081,))
-        ]))
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=1, shuffle=False,
-        num_workers=1, pin_memory=True)
+# def test(net):
+#     net.eval()
+#     # set dataset
+#     test_dataset = torchvision.datasets.MNIST(
+#         '../data/', train=False, download=True,
+#         transform=torchvision.transforms.Compose([
+#             torchvision.transforms.ToTensor(),
+#             torchvision.transforms.Normalize(
+#                 (0.1307,), (0.3081,))
+#         ]))
+#     test_loader = torch.utils.data.DataLoader(
+#         test_dataset,
+#         batch_size=1, shuffle=False,
+#         num_workers=1, pin_memory=True)
 
-    test_loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in test_loader:
-            data = data.cuda()
-            target = target.cuda()
-            output = net(data)
-            test_loss += F.nll_loss(output, target, size_average=False).item()
-            pred = output.data.max(1, keepdim=True)[1]
-            correct += pred.eq(target.data.view_as(pred)).sum()
-    test_loss /= len(test_loader.dataset)
-    print('\nTest set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
+#     test_loss = 0
+#     correct = 0
+#     with torch.no_grad():
+#         for data, target in test_loader:
+#             data = data.cuda()
+#             target = target.cuda()
+#             output = net(data)
+#             test_loss += F.nll_loss(output, target, size_average=False).item()
+#             pred = output.data.max(1, keepdim=True)[1]
+#             correct += pred.eq(target.data.view_as(pred)).sum()
+#     test_loss /= len(test_loader.dataset)
+#     print('\nTest set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+#         test_loss, correct, len(test_loader.dataset),
+#         100. * correct / len(test_loader.dataset)))
 
 
 def train(device='cuda'):
     # setup net
-    net = FACT().to(device)
+    net = FACTModel().to(device)
 
     # setup trainer
     trainer = Trainer(net, cfg, use_tb=True)
@@ -112,7 +112,7 @@ def train(device='cuda'):
             audio = audio.to(device)
             target = target.to(device)
             output = trainer.net(motion, audio)
-            loss = F.mse_loss(output, target)
+            loss = trainer.net.module.loss(target, output)
 
             trainer.optimizer.zero_grad()
             loss.backward()

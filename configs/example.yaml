@@ -1,1 +1,2 @@
 name: 'example'
+batch_size: 4
