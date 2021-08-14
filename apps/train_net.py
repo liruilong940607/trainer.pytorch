@@ -33,35 +33,41 @@ cfg.merge_from_list(opts)
 cfg.freeze()
 
 
-# def test(net):
-#     net.eval()
-#     # set dataset
-#     test_dataset = torchvision.datasets.MNIST(
-#         '../data/', train=False, download=True,
-#         transform=torchvision.transforms.Compose([
-#             torchvision.transforms.ToTensor(),
-#             torchvision.transforms.Normalize(
-#                 (0.1307,), (0.3081,))
-#         ]))
-#     test_loader = torch.utils.data.DataLoader(
-#         test_dataset,
-#         batch_size=1, shuffle=False,
-#         num_workers=1, pin_memory=True)
+def evaluate(net=None, ckpt_path=None, gen_seq_length=120):
+    # set FACT model
+    device = "cuda"
+    if net is None:
+        assert os.path.exists(ckpt_path)
+        net = FACTModel().to(device)
+        net.load_state_dict(torch.load(ckpt_path)["net"])
+    else:
+        net = net.module
+    net.eval()
 
-#     test_loss = 0
-#     correct = 0
-#     with torch.no_grad():
-#         for data, target in test_loader:
-#             data = data.cuda()
-#             target = target.cuda()
-#             output = net(data)
-#             test_loss += F.nll_loss(output, target, size_average=False).item()
-#             pred = output.data.max(1, keepdim=True)[1]
-#             correct += pred.eq(target.data.view_as(pred)).sum()
-#     test_loss /= len(test_loader.dataset)
-#     print('\nTest set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-#         test_loss, correct, len(test_loader.dataset),
-#         100. * correct / len(test_loader.dataset)))
+    # set dataset
+    testval_dataset = AIChoreoDataset(
+        "/mnt/data/AIST++/", "/mnt/data/AIST/music", split="testval")
+    testval_data_loader = torch.utils.data.DataLoader(
+        testval_dataset,
+        batch_size=1, shuffle=False,
+        num_workers=cfg.num_threads, pin_memory=True, drop_last=False)
+    loader = iter(testval_data_loader)
+
+    for data in testval_data_loader:
+        # During inference, the `motion` is always the first 120 frames.
+        # The `audio` is the entire sequence (40+ secs). The `target` is
+        # the remaining motion frames starting from 121-st frame.
+        motion, audio, target, seq_name = data
+        motion = motion.to(device)
+        audio = audio.to(device)
+        target = target.to(device)
+        # The `output` is the generated motion starting from 121-st frame.
+        output = net.inference(motion, audio, gen_seq_length=120)
+        # metrics = net.calc_metrics(motion, output, target, audio)
+    
+    # print('\nEvaluation: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+    #     test_loss, correct, len(test_loader.dataset),
+    #     100. * correct / len(test_loader.dataset)))
 
 
 def train(device='cuda'):
@@ -119,7 +125,7 @@ def train(device='cuda'):
             trainer.optimizer.step()
 
             iter_time = time.time() - iter_start_time
-            eta = (niter-start_iter) * (time.time()-epoch_start_time) / (iteration-start_iter+1)
+            eta = (niter-iteration) * (time.time()-epoch_start_time) / (iteration-start_iter+1)
 
             # print
             if iteration % cfg.freq_plot == 0 and iteration > 0:

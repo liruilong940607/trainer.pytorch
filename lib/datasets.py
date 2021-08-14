@@ -52,20 +52,27 @@ class AIChoreoDataset:
         smpl_trans /= smpl_scaling
         audio = self.load_cached_audio_features(seq_name)
 
-        start = np.random.randint(
-            0, min(smpl_poses.shape[0] - self.m_seq_len - self.out_seq_len, audio.shape[0] - self.a_seq_len))
-        motion_end = start + self.m_seq_len + self.out_seq_len
-        audio_end = start + self.a_seq_len
-
+        if self.split == "train":
+            start = np.random.randint(
+                0, 
+                min(smpl_poses.shape[0] - self.m_seq_len - self.out_seq_len, audio.shape[0] - self.a_seq_len)
+            )
+            motion_end = start + self.m_seq_len + self.out_seq_len
+            audio_end = start + self.a_seq_len
+        else:
+            start = 0
+            motion_end = smpl_poses.shape[0]
+            audio_end = audio.shape[0]
+        
         smpl_poses = smpl_poses[start:motion_end]
         smpl_trans = smpl_trans[start:motion_end]
         smpl_poses = R.from_rotvec(
             smpl_poses.reshape(-1, 3)).as_matrix().reshape(smpl_poses.shape[0], -1)
         smpl_motion = np.concatenate([smpl_poses, smpl_trans], axis=-1)
         assert smpl_motion.shape[-1] == 24 * 9 + 3, f"motion shape is {smpl_motion.shape}!"
+        
         motion = smpl_motion[:self.m_seq_len]
-        target = smpl_motion[-self.out_seq_len:]
-
+        target = smpl_motion[self.m_seq_len:]
         audio = audio[start:audio_end]
 
         return (
