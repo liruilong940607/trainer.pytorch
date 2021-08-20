@@ -65,5 +65,5 @@ def visualize(motion, smpl_model):
     for kpts in keypoints3d:
         pts = vedo.Points(kpts).c("red")
         plotter = vedo.show(world, pts)
-        if plotter.escaped: break  # if ESE
+        if plotter.escaped: break  # if ESC
     vedo.interactive().close()
