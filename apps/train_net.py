@@ -10,15 +10,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 
+from smplx import SMPL
+
 sys.path.insert(0, '../')
 from lib.common.trainer import Trainer
 from lib.common.config import get_cfg_defaults
 from lib.datasets import AIChoreoDataset
 from lib.models import FACTModel
+from lib.metrics import visualize
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '-cfg', '--config_file', type=str, help='path of the yaml config file')
+parser.add_argument(
+    '--eval_only', action="store_true", help='whether only do evaluation.')
 argv = sys.argv[1:sys.argv.index('--')]
 args = parser.parse_args(argv)
 
@@ -37,7 +43,7 @@ def evaluate(net=None, ckpt_path=None, gen_seq_length=120):
     # set FACT model
     device = "cuda"
     if net is None:
-        assert os.path.exists(ckpt_path)
+        assert os.path.exists(ckpt_path), ckpt_path
         net = FACTModel().to(device)
         net.load_state_dict(torch.load(ckpt_path)["net"])
     else:
@@ -51,7 +57,10 @@ def evaluate(net=None, ckpt_path=None, gen_seq_length=120):
         testval_dataset,
         batch_size=1, shuffle=False,
         num_workers=cfg.num_threads, pin_memory=True, drop_last=False)
-    loader = iter(testval_data_loader)
+    
+    # set smpl
+    smpl = SMPL(
+        model_path=cfg.dataset.smpl_dir, gender='MALE', batch_size=1)
 
     for data in testval_data_loader:
         # During inference, the `motion` is always the first 120 frames.
@@ -62,7 +71,8 @@ def evaluate(net=None, ckpt_path=None, gen_seq_length=120):
         audio = audio.to(device)
         target = target.to(device)
         # The `output` is the generated motion starting from 121-st frame.
-        output = net.inference(motion, audio, gen_seq_length=120)
+        output = net.inference(motion, audio, gen_seq_length=gen_seq_length)
+        visualize(motion=output.cpu().numpy(), smpl_model=smpl)
         # metrics = net.calc_metrics(motion, output, target, audio)
     
     # print('\nEvaluation: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
@@ -159,4 +169,7 @@ def train(device='cuda'):
 
 
 if __name__ == '__main__':
-    train()
+    if args.eval_only:
+        evaluate(ckpt_path=cfg.ckpt_path, gen_seq_length=300)
+    else:
+        train()

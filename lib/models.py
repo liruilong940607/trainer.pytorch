@@ -219,21 +219,21 @@ class FACTModel(nn.Module):
 
   @torch.no_grad()
   def inference(self, motion_seed, audio_full, gen_seq_length=120):
-    motion_frames = [frame for frame in motion_seed]
-    audio_frames = [frame for frame in audio_full]
+    motion_frames = [motion_seed[:, i:i+1] for i in range(motion_seed.shape[1])]
+    audio_frames = [audio_full[:, i:i+1] for i in range(audio_full.shape[1])]
     results = []
     for _ in tqdm.tqdm(range(gen_seq_length)):
-      assert len(motion_frames) == 120
-      motion_input = torch.cat(motion_frames, dim=0)
+      assert len(motion_frames) == 120, len(motion_frames)
+      motion_input = torch.cat(motion_frames, dim=1)
       if len(audio_frames) < 240:
         break
-      audio_input = torch.cat(audio_frames[:240], dim=0) 
-      output = self.forward(motion_input, audio_input)[0]  # first frame
+      audio_input = torch.cat(audio_frames[:240], dim=1) 
+      output = self.forward(motion_input, audio_input)[:, 0:1]  # first frame
       results.append(output)
       motion_frames.append(output)
       motion_frames.pop(0)
       audio_frames.pop(0)
-    return torch.cat(results, dim=0)
+    return torch.cat(results, dim=1)
 
 
 if __name__ == "__main__":

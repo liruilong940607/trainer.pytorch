@@ -1,3 +1,6 @@
 name: 'example'
 batch_size: 2
 learning_rate: 0.0000125
+ckpt_path: "../data/checkpoints/example/ckpt_33.pth"
+schedule: [30, 50]
+resume: true

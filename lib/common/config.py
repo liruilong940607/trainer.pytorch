@@ -29,6 +29,7 @@ _C.net.backbone = ''
 
 _C.dataset = CN()
 _C.dataset.root = ''
+_C.dataset.smpl_dir = '/mnt/data/smpl/'
 
 
 def get_cfg_defaults():
