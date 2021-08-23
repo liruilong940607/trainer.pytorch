@@ -4,6 +4,10 @@ import torch.nn as nn
 import tqdm
 
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
 def truncated_normal(t, mean=0.0, std=0.02):
     torch.nn.init.normal_(t, mean=mean, std=std)
     while True:
@@ -178,16 +182,16 @@ class CrossModalLayer(nn.Module):
 class FACTModel(nn.Module):
   """Audio Motion Multi-Modal model."""
 
-  def __init__(self):
+  def __init__(self, motion_dim=219, audio_dim=35):
     """Initializer for FACTModel."""
     super().__init__()
     self.motion_transformer = Transformer(num_hidden_layers=2)
-    self.motion_linear_embedding = LinearEmbedding(in_dim=219, out_dim=800)
+    self.motion_linear_embedding = LinearEmbedding(in_dim=motion_dim, out_dim=800)
     self.motion_pos_embedding = PositionEmbedding(seq_length=120, dim=800)
     self.audio_transformer = Transformer(num_hidden_layers=2)
-    self.audio_linear_embedding = LinearEmbedding(in_dim=35, out_dim=800)
+    self.audio_linear_embedding = LinearEmbedding(in_dim=audio_dim, out_dim=800)
     self.audio_pos_embedding = PositionEmbedding(seq_length=240, dim=800)
-    self.cross_modal_layer = CrossModalLayer(hidden_size=800, out_dim=219)
+    self.cross_modal_layer = CrossModalLayer(hidden_size=800, out_dim=motion_dim)
 
   def forward(self, motion_input, audio_input):
     """Predict sequences from inputs.
@@ -233,13 +237,22 @@ class FACTModel(nn.Module):
       motion_frames.append(output)
       motion_frames.pop(0)
       audio_frames.pop(0)
-    return torch.cat(results, dim=1)
+    return torch.cat(results, dim=1)  
+
+  def print_num_parameters(self):
+    for attr in [
+        "motion_transformer", "motion_linear_embedding", "motion_pos_embedding",
+        "audio_transformer", "audio_linear_embedding", "audio_pos_embedding",
+        "cross_modal_layer"
+    ]:
+      print (attr, count_parameters(getattr(self, attr)))
 
 
 if __name__ == "__main__":
-    model = FACTModel()
-    motion = torch.randn(16, 120, 219)
-    audio = torch.randn(16, 240, 35)
+  model = FACTModel(motion_dim=219, audio_dim=35)
 
-    out = model(motion, audio)
-    print (out.shape)
+  motion = torch.randn(16, 120, 219)
+  audio = torch.randn(16, 240, 35)
+
+  out = model(motion, audio)
+  print (out.shape)

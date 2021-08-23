@@ -1,0 +1,5 @@
+name: 'replication'
+batch_size: 2
+learning_rate: 0.0001
+schedule: [17, 25]
+num_epoch: 50

@@ -146,7 +146,7 @@ def train(device='cuda'):
                     +f'ETA: {int(eta // 60):02d}:{int(eta - 60 * (eta // 60)):02d}|' \
                     +f'Err:{loss.item():.5f}|'
                 )
-                trainer.tb_writer.add_scalar('data/loss', loss.item(), global_step)
+                trainer.tb_writer.add_scalar('total_loss', loss.item(), global_step)
 
             # save
             if iteration % cfg.freq_save == 0 and iteration > 0:

@@ -136,7 +136,7 @@ if __name__ == "__main__":
         "/mnt/data/aist_plusplus_final/", 
         "/mnt/data/AIST/music", 
         "../apps/audio_cache/",
-        split="testval"
+        split="train"
     )
     print (len(dataset))
     motion, audio, target, seq_name = dataset[0]
