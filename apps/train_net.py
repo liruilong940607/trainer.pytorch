@@ -60,7 +60,7 @@ def evaluate(net=None, ckpt_path=None, gen_seq_length=120):
 
     # set dataset
     testval_dataset = AIChoreoDataset(
-        "/mnt/data/aist_plusplus_final/", "/mnt/data/AIST/music", split="trainval", paired=True)
+        "/mnt/data/aist_plusplus_final/", "/mnt/data/AIST/music", split="testval", paired=True)
     testval_data_loader = torch.utils.data.DataLoader(
         testval_dataset,
         batch_size=1, shuffle=False,
@@ -94,9 +94,12 @@ def evaluate(net=None, ckpt_path=None, gen_seq_length=120):
             motion, audio, target, seq_name = data
             motion = motion.to(device)
             audio = audio.to(device)
+            target = target.to(device)
             seq_name = seq_name[0]
             # The `output` is the generated motion starting from 121-st frame.
             output = net.inference(motion, audio, gen_seq_length=gen_seq_length)
+            loss = torch.nn.functional.mse_loss(target[:, 0], output[:, 0])
+            print ("loss:", loss.item())
             # np.save(
             #     os.path.join(save_dir, "%s.npy" % seq_name), 
             #     output.cpu().numpy())
@@ -204,6 +207,6 @@ def train(device='cuda'):
 
 if __name__ == '__main__':
     if args.eval_only:
-        evaluate(ckpt_path=cfg.ckpt_path, gen_seq_length=1200)
+        evaluate(ckpt_path=cfg.ckpt_path, gen_seq_length=10)
     else:
         train()

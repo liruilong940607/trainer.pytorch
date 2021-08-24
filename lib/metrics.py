@@ -1,5 +1,6 @@
 import vedo
 import torch
+import time
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from scipy import linalg
@@ -60,7 +61,10 @@ def visualize(motion, smpl_model):
         transl=torch.from_numpy(smpl_trans).float(),
     ).joints.detach().numpy()   # (seq_len, 24, 3)
 
-    bbox_center = keypoints3d.reshape(-1, 3).mean(axis=0)
+    bbox_center = (
+        keypoints3d.reshape(-1, 3).max(axis=0)
+        + keypoints3d.reshape(-1, 3).min(axis=0)
+    ) / 2.0
     bbox_size = (
         keypoints3d.reshape(-1, 3).max(axis=0) 
         - keypoints3d.reshape(-1, 3).min(axis=0)
@@ -71,6 +75,7 @@ def visualize(motion, smpl_model):
         pts = vedo.Points(kpts).c("red")
         plotter = vedo.show(world, pts)
         if plotter.escaped: break  # if ESC
+        time.sleep(0.2)
     vedo.interactive().close()
 
 
