@@ -5,10 +5,13 @@ import sys
 import os
 import argparse
 import time
+import glob
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
+import tqdm
 
 from smplx import SMPL
 
@@ -17,8 +20,9 @@ from lib.common.trainer import Trainer
 from lib.common.config import get_cfg_defaults
 from lib.datasets import AIChoreoDataset
 from lib.models import FACTModel
-from lib.metrics import visualize
-
+from lib.metrics import (
+    visualize, calculate_frechet_feature_distance, extract_feature
+)
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -50,34 +54,64 @@ def evaluate(net=None, ckpt_path=None, gen_seq_length=120):
         net = net.module
     net.eval()
 
+    # set smpl
+    smpl = SMPL(
+        model_path=cfg.dataset.smpl_dir, gender='MALE', batch_size=1)
+
     # set dataset
     testval_dataset = AIChoreoDataset(
-        "/mnt/data/AIST++/", "/mnt/data/AIST/music", split="testval")
+        "/mnt/data/aist_plusplus_final/", "/mnt/data/AIST/music", split="trainval", paired=True)
     testval_data_loader = torch.utils.data.DataLoader(
         testval_dataset,
         batch_size=1, shuffle=False,
         num_workers=cfg.num_threads, pin_memory=True, drop_last=False)
     
-    # set smpl
-    smpl = SMPL(
-        model_path=cfg.dataset.smpl_dir, gender='MALE', batch_size=1)
-
-    for data in testval_data_loader:
-        # During inference, the `motion` is always the first 120 frames.
-        # The `audio` is the entire sequence (40+ secs). The `target` is
-        # the remaining motion frames starting from 121-st frame.
-        motion, audio, target, seq_name = data
-        motion = motion.to(device)
-        audio = audio.to(device)
-        target = target.to(device)
-        # The `output` is the generated motion starting from 121-st frame.
-        output = net.inference(motion, audio, gen_seq_length=gen_seq_length)
-        visualize(motion=output.cpu().numpy(), smpl_model=smpl)
-        # metrics = net.calc_metrics(motion, output, target, audio)
+    # get cached motion features for the real data
+    real_features = {
+        "kinetic": [np.load(f) for f in glob.glob("/tmp/aist_features/*_kinetic.npy")],
+        "manual": [np.load(f) for f in glob.glob("/tmp/aist_features/*_manual.npy")],
+    }
     
-    # print('\nEvaluation: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-    #     test_loss, correct, len(test_loader.dataset),
-    #     100. * correct / len(test_loader.dataset)))
+    result_features = {"kinetic": [], "manual": []}
+
+    save_dir = os.path.join(cfg.results_path, cfg.name, "eval_results")
+    os.makedirs(save_dir, exist_ok=True)
+    save_files = sorted(glob.glob(os.path.join(save_dir, "*.npy")))
+    if False: # len(save_files) > 0:
+        for f in tqdm.tqdm(save_files):
+            output = np.load(f)
+            print (f)
+            visualize(motion=output, smpl_model=smpl)
+            result_features["kinetic"].append(
+                extract_feature(output, smpl, "kinetic"))
+            result_features["manual"].append(
+                extract_feature(output, smpl, "manual"))
+    else:
+        for data in tqdm.tqdm(testval_data_loader):
+            # During inference, the `motion` is always the first 120 frames.
+            # The `audio` is the entire sequence (40+ secs). The `target` is
+            # the remaining motion frames starting from 121-st frame.
+            motion, audio, target, seq_name = data
+            motion = motion.to(device)
+            audio = audio.to(device)
+            seq_name = seq_name[0]
+            # The `output` is the generated motion starting from 121-st frame.
+            output = net.inference(motion, audio, gen_seq_length=gen_seq_length)
+            # np.save(
+            #     os.path.join(save_dir, "%s.npy" % seq_name), 
+            #     output.cpu().numpy())
+            visualize(motion=output.cpu().numpy(), smpl_model=smpl)
+            result_features["kinetic"].append(
+                extract_feature(output.cpu().numpy(), smpl, "kinetic"))
+            result_features["manual"].append(
+                extract_feature(output.cpu().numpy(), smpl, "manual"))
+            
+    # FID metrics
+    FID_k = calculate_frechet_feature_distance(
+        real_features["kinetic"], result_features["kinetic"])
+    FID_g = calculate_frechet_feature_distance(
+        real_features["manual"], result_features["manual"])
+    print('\nEvaluation: FID_k: {:.4f}, FID_g: {:.4f}\n'.format(FID_k, FID_g))
 
 
 def train(device='cuda'):
@@ -94,7 +128,7 @@ def train(device='cuda'):
 
     # set dataset
     train_dataset = AIChoreoDataset(
-        "/mnt/data/AIST++/", "/mnt/data/AIST/music", split="train")
+        "/mnt/data/aist_plusplus_final/", "/mnt/data/AIST/music", split="train")
 
     train_data_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -170,6 +204,6 @@ def train(device='cuda'):
 
 if __name__ == '__main__':
     if args.eval_only:
-        evaluate(ckpt_path=cfg.ckpt_path, gen_seq_length=300)
+        evaluate(ckpt_path=cfg.ckpt_path, gen_seq_length=1200)
     else:
         train()

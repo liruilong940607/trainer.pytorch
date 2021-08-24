@@ -226,7 +226,7 @@ class FACTModel(nn.Module):
     motion_frames = [motion_seed[:, i:i+1] for i in range(motion_seed.shape[1])]
     audio_frames = [audio_full[:, i:i+1] for i in range(audio_full.shape[1])]
     results = []
-    for _ in tqdm.tqdm(range(gen_seq_length)):
+    for _ in range(gen_seq_length):
       assert len(motion_frames) == 120, len(motion_frames)
       motion_input = torch.cat(motion_frames, dim=1)
       if len(audio_frames) < 240:

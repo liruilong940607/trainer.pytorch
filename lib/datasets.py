@@ -1,4 +1,5 @@
 import os
+import random
 import numpy as np
 import tqdm
 import librosa
@@ -10,7 +11,7 @@ from aist_plusplus.loader import AISTDataset
 
 class AIChoreoDataset:
     def __init__(self, root_dir, audio_dir, audio_cache_dir="./audio_cache", split="train",
-                 m_seq_len=120, a_seq_len=240, out_seq_len=20):
+                 m_seq_len=120, a_seq_len=240, out_seq_len=20, paired=True):
         self.root_dir = root_dir
         self.audio_dir = audio_dir
         self.audio_cache_dir = audio_cache_dir
@@ -18,6 +19,7 @@ class AIChoreoDataset:
         self.m_seq_len = m_seq_len
         self.a_seq_len = a_seq_len
         self.out_seq_len = out_seq_len
+        self.paired = paired  # Used for evaluation. Whether to load paired motion-music data.
         self.aist_dataset = AISTDataset(root_dir)
 
         self.seq_names = []
@@ -40,6 +42,9 @@ class AIChoreoDataset:
         # self replication
         if split == "train":
             self.seq_names = self.seq_names * 100
+        else:
+            if self.paired: pass
+            else: self.seq_names = self.seq_names * 10
 
     def __len__(self):
         return len(self.seq_names)
@@ -50,7 +55,9 @@ class AIChoreoDataset:
         smpl_poses, smpl_scaling, smpl_trans = AISTDataset.load_motion(
             self.aist_dataset.motion_dir, seq_name)
         smpl_trans /= smpl_scaling
-        audio = self.load_cached_audio_features(seq_name)
+        
+        audio_seq_name = seq_name if self.paired else random.choice(self.seq_names)
+        audio, audio_name = self.load_cached_audio_features(audio_seq_name)
 
         if self.split == "train":
             start = np.random.randint(
@@ -79,12 +86,15 @@ class AIChoreoDataset:
             torch.from_numpy(motion).float(),
             torch.from_numpy(audio).float(),
             torch.from_numpy(target).float(),
-            seq_name
+            "%s_%s" % (seq_name, audio_name),
         )
 
     def load_cached_audio_features(self, seq_name):
         audio_name = seq_name.split("_")[-2]
-        return np.load(os.path.join(self.audio_cache_dir, f"{audio_name}.npy"))
+        return (
+            np.load(os.path.join(self.audio_cache_dir, f"{audio_name}.npy")),
+            audio_name
+        )
 
     def cache_audio_features(self):
         FPS = 60

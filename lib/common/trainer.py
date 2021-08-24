@@ -1,10 +1,8 @@
 import os
-import sys
 from easydict import EasyDict as edict
 
 import torch
 import torch.nn as nn
-
 from torch.utils.tensorboard.writer import SummaryWriter
 from .logger import colorlogger
 
@@ -93,14 +91,14 @@ class Trainer():
     def get_default_opt(cls):
         opt = edict()
 
-        opt.name = 'example'
+        opt.name = 'default'
         opt.checkpoints_path = '../data/checkpoints/'
         opt.results_path = '../data/results/'
-        opt.learning_rate = 1e-3
+        opt.learning_rate = 1.0
         opt.weight_decay = 0.0
         opt.momentum = 0.0
-        opt.optim = 'RMSprop'
-        opt.schedule = [40, 60]
+        opt.optim = 'Adam'
+        opt.schedule = [10, 20]
         opt.gamma = 0.1
         opt.resume = False 
         return opt
